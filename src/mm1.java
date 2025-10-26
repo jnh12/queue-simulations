@@ -1,13 +1,16 @@
 import java.util.Random;
 import java.util.*;
+import java.io.*; // <-- added
 
 
 public class mm1 {
 
 
     static final Random RNG = new Random("jad".hashCode());
-    static final double lambda = 0.15;
-    static final double mu     = 0.20;
+    static double lambda = 0.01;
+    static final double mu     = 1;
+    static final int iterations = 1000000;
+
 
     static double expRate(double rate) {
         double u = RNG.nextDouble();
@@ -34,87 +37,95 @@ public class mm1 {
     }
 
     public static void main(String[] args) {
+        String csvPath = "mm1_results.csv";
+        try (PrintWriter out = new PrintWriter(new FileWriter(csvPath))) {
+            out.println("lambda,mu,rho,sim_L,exp_L,sim_W,exp_W,sim_Lq,exp_Lq,sim_Wq,exp_Wq,sim_time_T,departed");
 
-        State s = new State();
-        s.MC = 0;
-        s.CLA = s.MC + expRate(lambda);
-        s.CL4 = Double.NaN;
-        s.repairman = false;
-        s.Q.clear();
-        s.lastMC = 0.0;
+            for (int k = 0; k < 90; k++) {
+
+                State s = new State();
+                s.MC = 0;
+                s.CLA = s.MC + expRate(lambda);
+                s.CL4 = Double.NaN;
+                s.repairman = false;
+                s.Q.clear();
+                s.lastMC = 0.0;
+
+                lambda += 0.01;
+
+                for (int i = 0; i <= iterations; i++) {
+                    double nextArrTime;
+                    if (Double.isNaN(s.CLA)) {
+                        nextArrTime = Double.POSITIVE_INFINITY;
+                    } else {
+                        nextArrTime = s.CLA;
+                    }
+
+                    double nextDepTime;
+                    if (Double.isNaN(s.CL4)) {
+                        nextDepTime = Double.POSITIVE_INFINITY;
+                    } else {
+                        nextDepTime = s.CL4;
+                    }
+                    if (nextArrTime == Double.POSITIVE_INFINITY && nextDepTime == Double.POSITIVE_INFINITY) {
+                        break;
+                    }
+                    if (nextDepTime <= nextArrTime) {
+                        double dt = nextDepTime - s.lastMC;
+                        s.areaNsys += dt * (s.Q.size() + (s.repairman ? 1 : 0));
+                        s.areaNq += dt * (s.Q.size());
+                        s.lastMC = nextDepTime;
+                        s.MC = nextDepTime;
+                        handleDeparture(s);
+                    } else {
+                        double dt = nextArrTime - s.lastMC;
+                        double busy = s.repairman ? 1.0 : 0.0;
+                        s.areaNsys += dt * (s.Q.size() + busy);
+                        s.areaNq += dt * s.Q.size();
+                        s.lastMC = nextArrTime;
+                        s.MC = nextArrTime;
+                        handleArrival(s);
+                    }
 
 
-        for(int i =0; i<=1000000; i++){
-            double nextArrTime;
-            if (Double.isNaN(s.CLA)) {
-                nextArrTime = Double.POSITIVE_INFINITY;
+                    //printRow(s);
+                }
+
+                double T = s.lastMC;
+                double Ns_hat = s.areaNsys / T;
+                double Nq_hat = s.areaNq / T;
+                double Ds_hat = s.totalSys / s.departed;
+                double Dq_hat = s.totalWait / s.departed;
+
+
+                double rho = lambda / mu;
+                double L_exp = rho / (1.0 - rho);
+                double W_exp = 1.0 / (mu - lambda);
+                double Lq_exp = (rho * rho) / (1.0 - rho);
+                double Wq_exp = rho / (mu - lambda);
+
+
+                System.out.printf(Locale.US, "Parameters: λ=%.4f, μ=%.4f, ρ=%.4f%n", lambda, mu, rho);
+                System.out.printf(Locale.US, "%-42s %15s %15s%n", "", "Simulated", "Expected");
+                System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average number of packets in the system", Ns_hat, L_exp);
+                System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average system delay per packet (time units)", Ds_hat, W_exp);
+                System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average number of packets in the queue", Nq_hat, Lq_exp);
+                System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average queueing delay per packet (time units)", Dq_hat, Wq_exp);
+
+                out.printf(Locale.US,
+                        "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.0f%n",
+                        lambda, mu, rho,
+                        Ns_hat, L_exp,
+                        Ds_hat, W_exp,
+                        Nq_hat, Lq_exp,
+                        Dq_hat, Wq_exp,
+                        T, s.departed);
+
             }
-            else {
-                nextArrTime = s.CLA;
-            }
 
-            double nextDepTime;
-            if (Double.isNaN(s.CL4)) {
-                nextDepTime = Double.POSITIVE_INFINITY;
-            }
-            else {
-                nextDepTime = s.CL4;
-            }
-
-            if (nextArrTime == Double.POSITIVE_INFINITY && nextDepTime == Double.POSITIVE_INFINITY) {
-                break;
-            }
-
-            if (nextDepTime <= nextArrTime) {
-                double dt = nextDepTime - s.lastMC;
-                s.areaNsys += dt * (s.Q.size() + (s.repairman ? 1 : 0));
-                s.areaNq   += dt * (s.Q.size());
-                s.lastMC = nextDepTime;
-                s.MC = nextDepTime;
-
-                handleDeparture(s);
-            } else {
-                double dt = nextArrTime - s.lastMC;
-                double busy = s.repairman ? 1.0 : 0.0;
-                s.areaNsys += dt * (s.Q.size() + busy);
-                s.areaNq   += dt *  s.Q.size();
-                s.lastMC = nextArrTime;
-
-                s.MC = nextArrTime;
-                handleArrival(s);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-
-
-        printRow(s);
-        }
-
-        double T = s.lastMC;
-        double Ns_hat = s.areaNsys / T;
-        double Nq_hat = s.areaNq   / T;
-        double Ds_hat = s.totalSys  / s.departed;
-        double Dq_hat = s.totalWait / s.departed;
-
-
-        double rho = lambda / mu;
-        double L_exp  = rho / (1.0 - rho);
-        double W_exp  = 1.0 / (mu - lambda);
-        double Lq_exp = (rho * rho) / (1.0 - rho);
-        double Wq_exp = rho / (mu - lambda);
-
-
-
-        System.out.printf(Locale.US, "Parameters: λ=%.4f, μ=%.4f, ρ=%.4f%n", lambda, mu, rho);
-        System.out.printf(Locale.US, "%-42s %15s %15s%n", "", "Simulated", "Expected");
-        System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n",
-                "Average number of packets in the system", Ns_hat, L_exp);
-        System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n",
-                "Average system delay per packet (time units)", Ds_hat, W_exp);
-        System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n",
-                "Average number of packets in the queue", Nq_hat, Lq_exp);
-        System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n",
-                "Average queueing delay per packet (time units)", Dq_hat, Wq_exp);
-
-
     }
 
     static void handleArrival(State s) {
