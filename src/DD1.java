@@ -1,7 +1,7 @@
 import java.util.*;
 
 
-public class dd1 {
+public class DD1 {
 
 
     static double uptime = 10;

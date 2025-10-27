@@ -3,13 +3,14 @@ import java.util.*;
 import java.io.*; // <-- added
 
 
-public class mm1 {
+public class MM1K {
 
 
     static final Random RNG = new Random("jad".hashCode());
     static double lambda = 0.01;
     static final double mu     = 1;
     static final int iterations = 1000000;
+    static final int QMAX = 1; // queue capacity
 
 
     static double expRate(double rate) {
@@ -34,12 +35,14 @@ public class mm1 {
         Deque<Double> arrTimes = new ArrayDeque<>();
         double curArr = Double.NaN;
         double curSrvStart = Double.NaN;
+        double arrived = 0.0;  // arrival attempts
+        double lost    = 0.0;  // arrivals blocked
     }
 
     public static void main(String[] args) {
         String csvPath = "mm1_results.csv";
         try (PrintWriter out = new PrintWriter(new FileWriter(csvPath))) {
-            out.println("lambda,mu,rho,sim_L,exp_L,sim_W,exp_W,sim_Lq,exp_Lq,sim_Wq,exp_Wq,sim_time_T,departed");
+            out.println("lambda,mu,rho,sim_L,exp_L,sim_W,exp_W,sim_Lq,exp_Lq,sim_Wq,exp_Wq,sim_time_T,departed,p_block,lambda_eff,arrived,lost");
 
             for (int k = 0; k < 90; k++) {
 
@@ -87,8 +90,6 @@ public class mm1 {
                         handleArrival(s);
                     }
 
-
-                    //printRow(s);
                 }
 
                 double T = s.lastMC;
@@ -96,6 +97,8 @@ public class mm1 {
                 double Nq_hat = s.areaNq / T;
                 double Ds_hat = s.totalSys / s.departed;
                 double Dq_hat = s.totalWait / s.departed;
+                double p_block     = (s.arrived > 0.0) ? (s.lost / s.arrived) : Double.NaN;
+                double lambda_eff  = s.departed / T;
 
 
                 double rho = lambda / mu;
@@ -111,15 +114,19 @@ public class mm1 {
                 System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average system delay per packet (time units)", Ds_hat, W_exp);
                 System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average number of packets in the queue", Nq_hat, Lq_exp);
                 System.out.printf(Locale.US, "%-42s %15.6f %15.6f%n", "Average queueing delay per packet (time units)", Dq_hat, Wq_exp);
+                System.out.printf(Locale.US, "%-42s %15.6f%n", "Blocking probability", p_block);
+                System.out.printf(Locale.US, "%-42s %15.6f%n", "Effective arrival rate", lambda_eff);
 
                 out.printf(Locale.US,
-                        "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.0f%n",
+                        "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.0f,%.6f,%.6f,%.0f,%.0f%n",
                         lambda, mu, rho,
                         Ns_hat, L_exp,
                         Ds_hat, W_exp,
                         Nq_hat, Lq_exp,
                         Dq_hat, Wq_exp,
-                        T, s.departed);
+                        T, s.departed,
+                        p_block, lambda_eff, s.arrived, s.lost
+                );
 
             }
 
@@ -130,16 +137,23 @@ public class mm1 {
 
     static void handleArrival(State s) {
         s.CLA = s.MC + expRate(lambda);     //posisson arrivals
+        s.arrived++;
 
         if (!s.repairman) {
             s.repairman = true;
             s.curArr = s.MC;
             s.curSrvStart = s.MC;
             s.CL4 = s.MC + expRate(mu);  //exponential service
-        } else {
-            s.Q.addLast(1);
-            s.arrTimes.addLast(s.MC);
+            return;
         }
+
+        if (s.Q.size() >= QMAX) {
+            s.lost++;
+            return;
+        }
+
+        s.Q.addLast(1);
+        s.arrTimes.addLast(s.MC);
     }
 
 
@@ -165,24 +179,6 @@ public class mm1 {
             s.curSrvStart = Double.NaN;
         }
     }
-
-
-    static void printRow(State s) {
-        String cla = Double.isNaN(s.CLA) ? "-" : trim(s.CLA);
-        String cl4 = Double.isNaN(s.CL4) ? "-" : trim(s.CL4);
-        String R = s.repairman ? "busy" : "idle";
-        System.out.printf("%s\t%s\t%s\t%d\t%s%n",
-                trim(s.MC), cla, cl4, s.Q.size(), R);
-    }
-
-
-    static String trim(double v) {
-        if (Math.abs(v - Math.rint(v)) < 1e-9) {
-            return String.valueOf((long) Math.rint(v));
-        }
-        return String.format(Locale.US, "%.4f", v);
-    }
-
 
 }
 
